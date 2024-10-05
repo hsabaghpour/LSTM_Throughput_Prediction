@@ -1,0 +1,11 @@
+## Dataset
+
+Due to confidentiality reasons, I am unable to share the dataset used in this project. However, you can easily adapt the code to your own dataset.
+
+### Steps to use your own dataset:
+
+1. Your dataset should include time-series throughput data, which can be loaded as a NumPy array.
+2. Update the `generate_data()` function or directly load your dataset in `main.py`.
+3. The data should be structured as a 1D time series, where each value represents network throughput at a specific time interval.
+
+If you need assistance with data formatting or structure, feel free to refer to the `ThroughputDataset` class in `dataset.py` or reach out for further guidance.
