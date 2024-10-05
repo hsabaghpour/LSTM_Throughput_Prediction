@@ -1,27 +1,76 @@
-# models/attention_lstm.py
+# main.py
 import torch
-import torch.nn as nn
+from torch.utils.data import DataLoader
+from models.attention_lstm import AttentionLSTM
+from utils.dataset import ThroughputDataset
+from utils.data_generation import generate_data
+from utils.plot_results import plot_results
+from sklearn.metrics import mean_squared_error
 
-class AttentionLSTM(nn.Module):
-    def __init__(self, input_size, hidden_size, output_size):
-        super(AttentionLSTM, self).__init__()
-        self.hidden_size = hidden_size
-        self.lstm = nn.LSTM(input_size, hidden_size, batch_first=True)
-        self.attn = nn.Linear(hidden_size, hidden_size)
-        self.attn_combine = nn.Linear(hidden_size * 2, hidden_size)
-        self.out = nn.Linear(hidden_size, output_size)
+# Sliding Window Preparation
+def prepare_data(data, window_size, target_size, split_ratio=0.7):
+    dataset = ThroughputDataset(data, window_size, target_size)
+    train_size = int(len(dataset) * split_ratio)
+    test_size = len(dataset) - train_size
+    train_set, test_set = torch.utils.data.random_split(dataset, [train_size, test_size])
+    return train_set, test_set
 
-    def attention(self, lstm_output, hidden):
-        hidden = hidden.squeeze(0)  # remove batch size dim
-        attn_weights = torch.bmm(lstm_output, hidden.unsqueeze(2)).squeeze(2)
-        attn_weights = torch.softmax(attn_weights, dim=1)
-        attn_applied = torch.bmm(attn_weights.unsqueeze(1), lstm_output).squeeze(1)
-        return attn_applied
+# Training function
+def train(model, train_loader, optimizer, loss_fn, epochs=50):
+    model.train()
+    for epoch in range(epochs):
+        epoch_loss = 0.0
+        for x_batch, y_batch in train_loader:
+            optimizer.zero_grad()
+            predictions = model(x_batch)
+            loss = loss_fn(predictions, y_batch)
+            loss.backward()
+            optimizer.step()
+            epoch_loss += loss.item()
+        print(f"Epoch {epoch+1}, Loss: {epoch_loss/len(train_loader)}")
 
-    def forward(self, x):
-        lstm_out, (hidden, cell) = self.lstm(x)
-        attn_applied = self.attention(lstm_out, hidden[-1])
-        output = torch.cat((attn_applied, hidden[-1]), dim=1)
-        output = torch.relu(self.attn_combine(output))
-        output = self.out(output)
-        return output
+# Evaluation function
+def evaluate(model, test_loader, loss_fn):
+    model.eval()
+    with torch.no_grad():
+        predictions, actuals = [], []
+        for x_batch, y_batch in test_loader:
+            preds = model(x_batch)
+            predictions.append(preds.numpy())
+            actuals.append(y_batch.numpy())
+        predictions = np.concatenate(predictions, axis=0)
+        actuals = np.concatenate(actuals, axis=0)
+        mse = mean_squared_error(actuals, predictions)
+        rmse = np.sqrt(mse)
+        return rmse, actuals, predictions
+
+# Main execution
+if __name__ == "__main__":
+    # Hyperparameters
+    input_size = 1
+    hidden_size = 64
+    output_size = 1
+    window_size = 10
+    target_size = 1
+    batch_size = 16
+    learning_rate = 0.001
+    epochs = 50
+
+    # Generate and prepare data
+    throughput_data = generate_data()
+    train_set, test_set = prepare_data(throughput_data, window_size, target_size)
+    train_loader = DataLoader(train_set, batch_size=batch_size, shuffle=True)
+    test_loader = DataLoader(test_set, batch_size=batch_size, shuffle=False)
+
+    # Model setup
+    model = AttentionLSTM(input_size, hidden_size, output_size)
+    optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
+    loss_fn = torch.nn.MSELoss()
+
+    # Train and evaluate the model
+    train(model, train_loader, optimizer, loss_fn, epochs=epochs)
+    rmse, actual, predicted = evaluate(model, test_loader, loss_fn)
+    print(f"Test RMSE: {rmse}")
+
+    # Plot results
+    plot_results(actual, predicted)
